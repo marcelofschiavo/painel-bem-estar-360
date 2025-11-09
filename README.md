@@ -1,6 +1,6 @@
 # 🧠 Painel de Bem-Estar 360°
 
-[![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/SEU-NOME/SEU-PAINEL-DE-BEM-ESTAR)
+[![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/marcelofschiavo/painel-bem-estar-360)
 
 Um aplicativo de check-in de saúde mental guiado por IA, projetado para facilitar o diálogo entre pacientes e terapeutas, transformando registros diários em dados estruturados.
 
