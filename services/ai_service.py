@@ -8,7 +8,6 @@ from fastapi import UploadFile
 
 class AIService:
     def __init__(self):
-        # (Sem mudanças no __init__ e _load_whisper / _load_gemini)
         print("Carregando serviços de IA...")
         self.transcriber = self._load_whisper()
         self.gemini_model = self._load_gemini()
@@ -16,7 +15,10 @@ class AIService:
     def _load_whisper(self):
         try:
             print("Carregando modelo de transcrição (Whisper)...")
-            model = pipeline("automatic-speech-recognition", model="openai/whisper-tiny") # Voltado para 'tiny' para garantir que rode
+            
+            # --- MUDANÇA (CORREÇÃO DE MEMÓRIA): small -> tiny ---
+            model = pipeline("automatic-speech-recognition", model="openai/whisper-tiny")
+            
             print("Modelo de transcrição (tiny) carregado.")
             return model
         except Exception as e:
@@ -24,6 +26,7 @@ class AIService:
             return None
 
     def _load_gemini(self):
+        # (Sem mudanças)
         try:
             GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
             if not GOOGLE_API_KEY:
@@ -40,8 +43,8 @@ class AIService:
             print(f"Erro ao configurar o Gemini: {e}")
             return None
 
-    # (get_suggestions, get_drilldown_questions, transcribe_audio - Sem mudanças)
     async def get_suggestions(self, contexto: CheckinContext):
+        # (Sem mudanças)
         if not self.gemini_model: raise Exception("Modelo Gemini não carregado.")
         sentimento_desc = "muito positivo"
         if contexto.sentimento <= 2: sentimento_desc = "extremamente negativo"
@@ -65,6 +68,7 @@ class AIService:
             return {"sugestoes": ["Fale sobre seu dia", "O que mais te marcou hoje?"]}
 
     async def get_drilldown_questions(self, request: DrilldownRequest):
+        # (Sem mudanças)
         if not self.gemini_model: raise Exception("Modelo Gemini não carregado.")
         prompt = f"""
         Contexto: O usuário selecionou o tópico: "{request.topico_selecionado}"
@@ -83,6 +87,7 @@ class AIService:
             return {"perguntas": ["Pode detalhar mais?", "Como você se sentiu?"]}
 
     async def transcribe_audio(self, file: UploadFile):
+        # (Sem mudanças)
         if not self.transcriber: raise Exception("Modelo Whisper não carregado.")
         audio_bytes = await file.read()
         try:
@@ -95,6 +100,7 @@ class AIService:
             return {"transcricao": "[Erro ao processar áudio]"}
 
     async def process_final_checkin(self, checkin_data: CheckinFinal, diario_para_analise: str) -> GeminiResponse:
+        # (Sem mudanças)
         if not self.gemini_model: raise Exception("Modelo Gemini não carregado.")
         if not diario_para_analise: 
             return GeminiResponse(
@@ -125,33 +131,26 @@ class AIService:
                 acao="Tente novamente mais tarde."
             )
 
-    # --- FUNÇÃO ATUALIZADA ---
     async def get_sugestao_recado_psicologa(self, ultimo_diario_paciente: str, rascunho_psicologa: str):
-        """Gera uma sugestão de mensagem para a psicóloga, usando o rascunho como contexto."""
+        # (Sem mudanças)
         if not self.gemini_model:
             raise Exception("Modelo Gemini não carregado.")
-            
         if not ultimo_diario_paciente:
             return {"recado": "O paciente não deixou um diário para este registro."}
-
-        # --- MUDANÇA: O prompt agora usa o 'rascunho_psicologa' ---
         prompt = f"""
         Contexto: Você é uma psicóloga (TCC). Um paciente enviou o seguinte registro de diário:
         ---
         [DIÁRIO DO PACIENTE]:
         {ultimo_diario_paciente}
         ---
-        
         Você começou a escrever um rascunho de resposta (ou o campo está vazio):
         ---
         [SEU RASCUNHO]:
         {rascunho_psicologa}
         ---
-
         Sua tarefa é usar AMBOS os textos como contexto. Gere uma mensagem empática e completa. 
         Se o rascunho já tiver um bom começo, continue a partir dele. 
         Se o rascunho estiver vazio, apenas responda ao diário do paciente.
-        
         Retorne APENAS um objeto JSON válido no formato:
         {{"recado": "Sua mensagem sugerida (ou completada) aqui."}}
         """
