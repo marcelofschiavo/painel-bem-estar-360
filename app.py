@@ -1,5 +1,7 @@
-# app.py (O antigo gradio_app.py)
+# app.py (Refinado)
 import gradio as gr
+import requests # (Este não é mais usado, mas podemos deixar)
+import os # Necessário para a simulação de áudio
 
 # Importa os serviços que o main.py costumava chamar
 from services.ai_service import ai_service
@@ -12,19 +14,20 @@ Este é o nosso aplicativo principal e único.
 Ele contém a UI (Gradio) e chama os 'services' diretamente.
 """
 
-# --- Funções de Lógica (Agora chamando 'services' diretamente) ---
+# --- Funções de Lógica (Interação com a API) ---
 
-# As funções do Gradio precisam ser 'async' agora
-async def fn_get_suggestions(contexto_str, area, sentimento_float):
+async def fn_get_suggestions(contexto_bool, area, sentimento_float):
     """Nível 1: Busca sugestões no AI Service."""
     try:
-        # Cria o objeto Pydantic que o serviço espera
+        # <-- MUDANÇA 1: Traduzir Bool para String ---
+        # A UI envia True/False, mas o serviço espera "Pessoal" ou "Profissional"
+        contexto_str = "Profissional" if contexto_bool else "Pessoal"
+        
         contexto_data = CheckinContext(
             contexto=contexto_str, 
             area=area, 
             sentimento=sentimento_float
         )
-        # Chama o serviço diretamente
         response_data = await ai_service.get_suggestions(contexto_data)
         sugestoes = response_data.get("sugestoes", [])
         return gr.update(choices=sugestoes, visible=True)
@@ -33,9 +36,10 @@ async def fn_get_suggestions(contexto_str, area, sentimento_float):
         return gr.update(visible=False)
 
 async def fn_get_drilldown(topicos_selecionados):
-    """Nível 2: Busca perguntas-chave no AI Service."""
+    """Nível 2: Busca perguntas-chave e atualiza a UI."""
     if not topicos_selecionados:
-        return gr.update(visible=False), gr.update(visible=False), gr.update(value="", visible=False)
+        # Esconde a fileira inteira do diário
+        return gr.update(visible=False), gr.update(label="Meu Diário"), gr.update(value=None)
     
     primeiro_topico = topicos_selecionados[0]
     
@@ -46,19 +50,18 @@ async def fn_get_drilldown(topicos_selecionados):
         perguntas = response_data.get("perguntas", [])
         markdown_text = "### Pontos-chave para detalhar:\n" + "\n".join(f"* {p}" for p in perguntas)
         
-        diario_inicial = f"Sobre '{primeiro_topico}': "
-        return gr.update(visible=True, value=markdown_text), gr.update(value=diario_inicial, visible=True), gr.update(visible=True)
+        # <-- MUDANÇA 2: Mudar o Label do Diário ---
+        # Em vez de preencher o texto, mudamos o TÍTULO (label) da caixa
+        return gr.update(visible=True), gr.update(label=f"Sobre: '{primeiro_topico}'"), gr.update(value=markdown_text)
     except Exception as e:
         print(f"Erro ao chamar ai_service.get_drilldown_questions: {e}")
-        return gr.update(visible=False), gr.update(value="", visible=False), gr.update(visible=False)
+        return gr.update(visible=False), gr.update(label="Meu Diário"), gr.update(value=None)
 
 async def fn_transcribe(audio_filepath, diaro_atual):
     """Nível 3: Envia áudio para o AI Service."""
     if audio_filepath is None:
         return diaro_atual
     try:
-        # Para o AI Service funcionar, precisamos simular um UploadFile
-        # Esta é a parte mais "chata" da fusão
         class SimulaUploadFile:
             def __init__(self, filepath):
                 self.filename = os.path.basename(filepath)
@@ -70,7 +73,7 @@ async def fn_transcribe(audio_filepath, diaro_atual):
 
         audio_file = SimulaUploadFile(audio_filepath)
         response_data = await ai_service.transcribe_audio(audio_file)
-        audio_file.close() # Fecha o arquivo
+        audio_file.close() 
         
         transcricao = response_data.get("transcricao", "")
         novo_texto = f"{diaro_atual}\n{transcricao}".strip()
@@ -79,9 +82,12 @@ async def fn_transcribe(audio_filepath, diaro_atual):
         print(f"Erro ao chamar ai_service.transcribe_audio: {e}")
         return diaro_atual
 
-async def fn_submit_checkin(contexto_str, area, sentimento_float, topicos, diaro_texto):
+async def fn_submit_checkin(contexto_bool, area, sentimento_float, topicos, diaro_texto):
     """Nível Final: Orquestra os serviços de IA e Sheets."""
     try:
+        # <-- MUDANÇA 3: Traduzir Bool para String ---
+        contexto_str = "Profissional" if contexto_bool else "Pessoal"
+        
         checkin_data = CheckinFinal(
             contexto=contexto_str,
             area=area,
@@ -90,13 +96,9 @@ async def fn_submit_checkin(contexto_str, area, sentimento_float, topicos, diaro
             diario_texto=diaro_texto
         )
         
-        # 1. Roda toda a análise de IA
         gemini_data = await ai_service.process_final_checkin(checkin_data)
-        
-        # 2. Salva os dados no Google Sheets
         sheets_service.write_checkin(checkin_data, gemini_data)
         
-        # 3. Formata o feedback
         msg = "Seu check-in foi salvo com sucesso!"
         insight = gemini_data.insight
         acao = gemini_data.acao
@@ -126,19 +128,22 @@ async def fn_submit_checkin(contexto_str, area, sentimento_float, topicos, diaro
         return gr.update(value=f"Erro ao processar o check-in: {e}", visible=True)
 
 # --- Interface Gráfica (Gradio Blocks) ---
-with gr.Blocks(theme=gr.themes.Soft()) as app: 
+# <-- MUDANÇA 4: TEMA CLARO (Default) ---
+with gr.Blocks(theme=gr.themes.Default()) as app: 
     
     gr.Markdown("# 🧠 Painel de Bem-Estar 360°")
     gr.Markdown("Faça seu check-in diário. A IA irá te guiar.")
 
-    # Layout simples (base)
     with gr.Row():
         with gr.Column(scale=1):
-            in_contexto = gr.Radio(
-                ["Pessoal", "Profissional"], 
-                label="Qual o contexto?",
-                value="Pessoal"
+            
+            # <-- MUDANÇA 5: CHECKBOX "ON/OFF" ---
+            in_contexto = gr.Checkbox(
+                label="Check-in Profissional?", 
+                info="Deixe desmarcado para Pessoal",
+                value=False # Padrão é False (Pessoal)
             )
+            
             in_area = gr.Dropdown(
                 ["Saúde Mental", "Saúde Física", "Relacionamentos", "Carreira", "Finanças", "Lazer", "Outro"], 
                 label="Sobre qual área?",
@@ -153,42 +158,48 @@ with gr.Blocks(theme=gr.themes.Soft()) as app:
                 label="O que aconteceu? (IA Nível 1)", 
                 visible=False
             )
-            out_perguntas_chave = gr.Markdown(visible=False) 
+            # Removemos os "pontos-chave" daqui...
 
-    with gr.Row():
-        in_diario_texto = gr.Textbox(
-            lines=5, 
-            label="Meu Diário",
-            placeholder="Seu diário aparecerá aqui...",
-            visible=False 
-        )
-
-    with gr.Row():
-        in_diario_audio = gr.Audio(
-            sources=["microphone"], 
-            type="filepath", 
-            label="Grave seu diário por voz (Opcional)",
-            visible=False 
-        )
+    # <-- MUDANÇA 6: NOVO LAYOUT LADO-A-LADO ---
+    with gr.Row(visible=False) as components_n3: # Esta fileira inteira começa oculta
+        with gr.Column(scale=2):
+            # O label "Meu Diário" será atualizado dinamicamente
+            in_diario_texto = gr.Textbox(
+                label="Meu Diário", 
+                lines=8, 
+                placeholder="Descreva o que aconteceu ou...",
+                visible=True
+            )
+            # Áudio movido para baixo do diário
+            in_diario_audio = gr.Audio(
+                sources=["microphone"], 
+                type="filepath", 
+                label="...grave seu diário por voz.",
+                visible=True
+            )
+        with gr.Column(scale=1, min_width=200):
+            # ...e colocamos os "pontos-chave" aqui
+            out_perguntas_chave = gr.Markdown("### Pontos-chave para detalhar:")
 
     btn_submit = gr.Button("Registrar Check-in")
     out_feedback = gr.Markdown(visible=False)
 
     # --- Conexões (Event Listeners) ---
-    # (As funções agora são 'async' mas o Gradio lida com isso)
+
     in_sentimento.release(
         fn=fn_get_suggestions,
         inputs=[in_contexto, in_area, in_sentimento],
         outputs=[out_sugestoes]
     )
 
+    # <-- MUDANÇA 7: ATUALIZAR OS OUTPUTS DO SELECT ---
     out_sugestoes.select(
         fn=fn_get_drilldown,
         inputs=[out_sugestoes],
         outputs=[
-            out_perguntas_chave, 
-            in_diario_texto,    
-            in_diario_audio
+            components_n3,      # 1. Mostra a fileira (Row) do diário
+            in_diario_texto,    # 2. Atualiza o LABEL do diário
+            out_perguntas_chave # 3. Preenche as perguntas-chave
         ]
     )
     
