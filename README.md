@@ -1,3 +1,13 @@
+---
+title: Painel de Bem-Estar 360
+emoji: 🧠
+colorFrom: blue
+colorTo: green
+sdk: gradio
+app_file: app.py
+pinned: false
+---
+
 # 🧠 Painel de Bem-Estar 360°
 
 [![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/marcelofschiavo/painel-bem-estar-360)
@@ -50,8 +60,8 @@ Este projeto foi refatorado para ser um aplicativo **Gradio autônomo**, otimiza
 
 1.  **Clone o repositório:**
     ```bash
-    git clone [https://github.com/SEU-NOME/SEU-REPOSITORIO.git](https://github.com/SEU-NOME/SEU-REPOSITORIO.git)
-    cd SEU-REPOSITORIO
+    git clone [https://github.com/marcelofschiavo/painel-bem-estar-360.git](https://github.com/marcelofschiavo/painel-bem-estar-360.git)
+    cd painel-bem-estar-360
     ```
 
 2.  **Crie e ative um ambiente virtual:**
