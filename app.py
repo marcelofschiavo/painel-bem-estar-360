@@ -254,7 +254,7 @@ with gr.Blocks(
     )
     in_diario_audio.stop_recording(
         fn=fn_transcribe,
-        inputs=[in_diio_texto],
+        inputs=[in_diario_texto],
         outputs=[in_diario_texto]
     )
     btn_submit.click(
