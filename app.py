@@ -1,4 +1,4 @@
-# app.py (com melhorias de UX/UI)
+# app.py (com lógica de botão corrigida)
 import gradio as gr
 import os
 import time
@@ -6,7 +6,7 @@ from services.ai_service import ai_service
 from services.sheets_service import sheets_service
 from models.schemas import CheckinContext, DrilldownRequest, CheckinFinal, GeminiResponse
 from fastapi import UploadFile # (Simulação)
-import pandas as pd # Importa o pandas para o DataFrame
+import pandas as pd
 
 # --- Lista de Áreas (Alfabética) ---
 areas_de_vida = [
@@ -48,27 +48,31 @@ async def fn_get_suggestions(area, sentimento_float):
         contexto_data = CheckinContext(area=area, sentimento=sentimento_float)
         response_data = await ai_service.get_suggestions(contexto_data)
         sugestoes = response_data.get("sugestoes", [])
-        # --- MUDANÇA: Mostra sugestões, "Outro" E o botão de Registrar ---
-        return gr.update(choices=sugestoes, visible=True), gr.update(visible=True), gr.update(visible=True)
+        # --- MUDANÇA: Não mostra mais o btn_submit ---
+        return gr.update(choices=sugestoes, visible=True), gr.update(visible=True)
     except Exception as e:
         print(f"Erro ao chamar ai_service.get_suggestions: {e}")
-        # Esconde tudo em caso de erro
-        return gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
+        return gr.update(visible=False), gr.update(visible=False)
 
+# --- FUNÇÃO ATUALIZADA ---
 async def fn_get_drilldown(topicos_selecionados):
-    # (Sem mudanças)
+    """Nível 2: Busca perguntas-chave e atualiza a UI."""
     if not topicos_selecionados:
-        return gr.update(visible=False), gr.update(label="Meu Diário"), gr.update(value=None)
+        # Esconde o diário E o botão de submit
+        return gr.update(visible=False), gr.update(label="Meu Diário"), gr.update(value=None), gr.update(visible=False)
+    
     primeiro_topico = topicos_selecionados[0]
     try:
         request_data = DrilldownRequest(topico_selecionado=primeiro_topico)
         response_data = await ai_service.get_drilldown_questions(request_data)
         perguntas = response_data.get("perguntas", [])
         markdown_text = "### Pontos-chave para detalhar:\n" + "\n".join(f"* {p}" for p in perguntas)
-        return gr.update(visible=True), gr.update(label=f"Sobre: '{primeiro_topico}'"), gr.update(value=markdown_text)
+        
+        # --- MUDANÇA: Mostra o diário E o botão de submit ---
+        return gr.update(visible=True), gr.update(label=f"Sobre: '{primeiro_topico}'"), gr.update(value=markdown_text), gr.update(visible=True)
     except Exception as e:
         print(f"Erro ao chamar ai_service.get_drilldown_questions: {e}")
-        return gr.update(visible=False), gr.update(label="Meu Diário"), gr.update(value=None)
+        return gr.update(visible=False), gr.update(label="Meu Diário"), gr.update(value=None), gr.update(visible=False)
 
 async def fn_transcribe(audio_filepath, diaro_atual):
     # (Sem mudanças)
@@ -103,7 +107,7 @@ async def fn_submit_checkin(paciente_id_do_state, area, sentimento_float, topico
         
         msg = f"Check-in de {paciente_id_do_state} salvo com sucesso!"
         
-        # --- MUDANÇA: Adiciona '---' para quebra de linha ---
+        # --- MUDANÇA: Quebra de linha com '---' ---
         feedback = f"""
         ### ✅ {msg}
         
@@ -135,7 +139,7 @@ def fn_load_history(paciente_id_do_state):
     headers, all_rows = sheets_service.get_all_checkin_data()
     if not headers:
         return gr.update(value=None), gr.update(value="Nenhum dado encontrado na planilha.", visible=True)
-    # ... (resto do código de processamento do histórico omitido para encurtar) ...
+    # ... (código de processamento do histórico omitido para encurtar) ...
     try:
         id_col_index = headers.index('paciente_id')
     except ValueError:
@@ -189,13 +193,10 @@ with gr.Blocks(
                         label="Sobre qual área?", 
                         value=areas_de_vida[0] 
                     )
-                    
                     in_sentimento = gr.Slider(
                         1, 5, step=1, label="Como você avalia essa área HOJE? (1=Péssimo, 5=Ótimo)", 
-                        value=3 # Mudei para 3 para não carregar automaticamente
+                        value=3
                     )
-                    
-                    # --- NOVO: Botão de Reload ---
                     btn_reload = gr.Button("Atualizar Sugestões (IA)", variant="secondary")
                 
                 with gr.Column(scale=2):
@@ -213,11 +214,8 @@ with gr.Blocks(
                 with gr.Column(scale=1, min_width=200):
                     out_perguntas_chave = gr.Markdown("### Pontos-chave para detalhar:")
 
-            # --- MUDANÇA: Botão de Registro começa oculto ---
             btn_submit = gr.Button("Registrar Check-in", visible=False)
-            
             out_feedback = gr.Markdown(visible=False)
-            
             btn_discard = gr.Button(
                 "Prefiro descartar este registro/não enviar para a psicóloga", 
                 variant="secondary", 
@@ -245,31 +243,39 @@ with gr.Blocks(
         outputs=[state_user, checkin_tab, out_login_message, tabs, history_tab]
     )
     
-    # --- MUDANÇA: 'in_sentimento.release' agora mostra o btn_submit ---
+    # --- MUDANÇA: 'in_sentimento.release' não mostra mais o btn_submit ---
     in_sentimento.release(
         fn=fn_get_suggestions,
         inputs=[in_area, in_sentimento], 
-        outputs=[out_sugestoes, in_outro_topico, btn_submit] # Mostra os 3
+        outputs=[out_sugestoes, in_outro_topico] # Só mostra sugestões e "outro"
     )
     
-    # --- NOVO: Botão de Reload faz o mesmo que o slider ---
+    # --- MUDANÇA: 'btn_reload' também não mostra o btn_submit ---
     btn_reload.click(
         fn=fn_get_suggestions,
         inputs=[in_area, in_sentimento],
-        outputs=[out_sugestoes, in_outro_topico, btn_submit]
+        outputs=[out_sugestoes, in_outro_topico]
     )
     
-    # (Resto sem mudanças)
+    # --- MUDANÇA: 'out_sugestoes.select' AGORA MOSTRA o btn_submit ---
     out_sugestoes.select(
         fn=fn_get_drilldown,
         inputs=[out_sugestoes],
-        outputs=[components_n3, in_diario_texto, out_perguntas_chave]
+        outputs=[
+            components_n3, 
+            in_diario_texto, 
+            out_perguntas_chave, 
+            btn_submit # <-- MUDANÇA AQUI
+        ]
     )
+    
     in_diario_audio.stop_recording(
         fn=fn_transcribe,
         inputs=[in_diario_audio, in_diario_texto],
         outputs=[in_diario_texto]
     )
+    
+    # (Inputs do btn_submit sem mudanças)
     btn_submit.click(
         fn=fn_submit_checkin,
         inputs=[
@@ -282,11 +288,13 @@ with gr.Blocks(
         ],
         outputs=[out_feedback, btn_discard]
     )
+    
     btn_discard.click(
         fn=fn_delete_last_record,
         inputs=[state_user],
         outputs=[btn_discard, out_feedback]
     )
+    
     btn_load_history.click(
         fn=fn_load_history,
         inputs=[state_user],
