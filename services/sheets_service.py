@@ -23,41 +23,74 @@ class SheetsService:
             creds_dict = json.loads(creds_json_str)
             creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
             client = gspread.authorize(creds)
-            self.sheet = client.open_by_key(SHEET_ID).sheet1
-            print(f"Google Sheet (ID: {SHEET_ID[:10]}...) conectado com sucesso.")
+            
+            # Abre o arquivo de planilha inteiro
+            spreadsheet = client.open_by_key(SHEET_ID)
+            
+            # --- MUDANÇA AQUI: Abre as duas abas ---
+            self.checkins_sheet = spreadsheet.worksheet("Checkins") # Aba onde salvamos os dados
+            self.users_sheet = spreadsheet.worksheet("Usuarios")   # Aba onde lemos os logins
+            
+            print(f"Google Sheet (Checkins, Usuarios) conectado com sucesso.")
+            
         except Exception as e:
             print(f"Erro Crítico ao conectar ao Google Sheets: {e}")
-            self.sheet = None
+            self.checkins_sheet = None
+            self.users_sheet = None
+
+    # --- NOVA FUNÇÃO ---
+    def check_user(self, username, password):
+        """Verifica se o usuário e senha existem na aba 'Usuarios'."""
+        if not self.users_sheet:
+            print("Erro: Aba de usuários não conectada.")
+            return False
+        
+        try:
+            # Pega todos os valores da planilha de usuários, exceto o cabeçalho
+            users_list = self.users_sheet.get_all_values()[1:] 
+            
+            for row in users_list:
+                # Coluna A (row[0]) é username, Coluna B (row[1]) é password
+                if row[0] == username and row[1] == password:
+                    print(f"Login bem-sucedido para: {username}")
+                    return True # Encontrou
+            
+            print(f"Login falhou para: {username}")
+            return False # Não encontrou
+        
+        except Exception as e:
+            print(f"Erro ao ler lista de usuários: {e}")
+            return False
 
     # --- FUNÇÃO ATUALIZADA ---
     def write_checkin(self, checkin: CheckinFinal, gemini_data: GeminiResponse, paciente_id: str):
         """Prepara e escreve a linha final na planilha (com ID do paciente)."""
-        if not self.sheet:
-            print("Erro: Planilha não conectada. Dados não salvos.")
-            raise Exception("Planilha não conectada.")
+        if not self.checkins_sheet:
+            print("Erro: Aba de check-ins não conectada. Dados não salvos.")
+            raise Exception("Aba de check-ins não conectada.")
 
         try:
             agora = datetime.now().isoformat()
             topicos_str = ", ".join(checkin.topicos_selecionados)
             temas_gemini_str = ", ".join(gemini_data.temas)
 
-            # --- LINHA ATUALIZADA (12 COLUNAS) ---
+            # (A ordem das colunas é a mesma de antes)
             nova_linha = [
-                agora,                     # A
-                checkin.contexto,          # B
-                checkin.area,              # C
-                checkin.sentimento,        # D
-                topicos_str,               # E
-                checkin.diario_texto,      # F
-                gemini_data.insight,       # G
-                gemini_data.acao,          # H
-                gemini_data.sentimento_texto, # I
-                temas_gemini_str,          # J
-                gemini_data.resumo,        # K
-                paciente_id                # L (NOVO)
+                agora,
+                checkin.contexto,
+                checkin.area,
+                checkin.sentimento,
+                topicos_str,
+                checkin.diario_texto,
+                gemini_data.insight,
+                gemini_data.acao,
+                gemini_data.sentimento_texto,
+                temas_gemini_str,
+                gemini_data.resumo,
+                paciente_id # Coluna L
             ]
             
-            self.sheet.append_row(nova_linha)
+            self.checkins_sheet.append_row(nova_linha)
             print(f"Dados de '{paciente_id}' salvos no Google Sheets com sucesso.")
             
         except Exception as e:
