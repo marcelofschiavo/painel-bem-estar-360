@@ -1,4 +1,4 @@
-# app.py (com Abas de Login, Histórico e Apagar)
+# app.py (com Dropdown de 12 itens e Botão de Descartar)
 import gradio as gr
 import os
 import time
@@ -8,6 +8,27 @@ from models.schemas import CheckinContext, DrilldownRequest, CheckinFinal, Gemin
 from fastapi import UploadFile # (Simulação)
 import pandas as pd # Importa o pandas para o DataFrame
 
+# --- Lista de Áreas (NOVO) ---
+# Esta é a nova lista de 12 itens para o dropdown
+areas_de_vida = [
+    # Relacionamentos
+    "Social: Amizades, convívio, conexões.",
+    "Amoroso: Parceria, afeto, intimidade.",
+    "Família: Harmonia, diálogo, vínculos.",
+    # Profissional
+    "Financeiro: Renda, controle, poupança.",
+    "Realização: Propósito, satisfação, reconhecimento.",
+    "Acadêmica: Estudo, aprendizado, evolução.",
+    # Qualidade de vida
+    "Hobbies: Prazer, diversão, lazer.",
+    "Espiritualidade: Conexão, paz, propósito.",
+    "Plenitude: Gratidão, felicidade, contentamento.",
+    # Pessoal
+    "Emoções: Gestão, sentimentos, equilíbrio.",
+    "Cognitiva: Foco, memória, clareza.",
+    "Física: Energia, saúde, disposição."
+]
+
 # --- Funções de Lógica ---
 
 def fn_login(username, password):
@@ -16,11 +37,6 @@ def fn_login(username, password):
         return None, gr.update(visible=False), gr.update(value="Usuário ou senha não podem estar em branco.", visible=True), gr.update(), gr.update(visible=False)
     login_valido = sheets_service.check_user(username, password)
     if login_valido:
-        # 1. Salva username no 'state'
-        # 2. Mostra a aba 'Check-in'
-        # 3. Limpa erro
-        # 4. Muda foco para Aba de Check-in (ID 1)
-        # 5. Mostra a aba 'Histórico'
         return username, gr.update(visible=True), gr.update(value="", visible=False), gr.update(selected=1), gr.update(visible=True)
     else:
         return None, gr.update(visible=False), gr.update(value="Login falhou. Verifique seu usuário e senha.", visible=True), gr.update(), gr.update(visible=False)
@@ -71,9 +87,10 @@ async def fn_transcribe(audio_filepath, diaro_atual):
 
 # --- FUNÇÃO ATUALIZADA ---
 async def fn_submit_checkin(paciente_id_do_state, contexto_bool, area, sentimento_float, topicos, diaro_texto):
-    """Nível Final: Orquestra os serviços de IA e Sheets. Agora mostra botões de apagar."""
+    """Nível Final: Orquestra os serviços de IA e Sheets. Agora mostra botão de descartar."""
     
     if not paciente_id_do_state:
+        # Mostra feedback de erro, esconde botão de descartar
         return gr.update(value="### ❌ Erro: Usuário não autenticado.", visible=True), gr.update(visible=False)
         
     try:
@@ -99,47 +116,38 @@ async def fn_submit_checkin(paciente_id_do_state, contexto_bool, area, sentiment
         * **Temas Principais:** {", ".join(gemini_data.temas)}
         * **Resumo:** {gemini_data.resumo}
         """
-        # --- MUDANÇA: Mostra o feedback E os botões de apagar ---
+        # Mostra o feedback E o novo botão de descartar
         return gr.update(value=feedback, visible=True), gr.update(visible=True)
     
     except Exception as e:
         print(f"Erro no fn_submit_checkin: {e}")
         return gr.update(value=f"Erro ao processar o check-in: {e}", visible=True), gr.update(visible=False)
 
-# --- NOVAS FUNÇÕES ---
+# --- FUNÇÃO ATUALIZADA ---
 def fn_delete_last_record(paciente_id_do_state):
-    """Chamado quando o usuário clica em 'Apagar'."""
+    """Chamado quando o usuário clica em 'Descartar'."""
     sheets_service.delete_last_record(paciente_id_do_state)
     
-    # Esconde os botões e atualiza a mensagem de feedback
-    return gr.update(visible=False), gr.update(value="### ✅ Registro apagado com sucesso.", visible=True)
+    # Esconde o botão e atualiza a mensagem de feedback
+    return gr.update(visible=False), gr.update(value="### ✅ Registro descartado com sucesso.", visible=True)
 
-def fn_keep_record():
-    """Chamado quando o usuário clica em 'Manter'."""
-    # Apenas esconde os botões de apagar
-    return gr.update(visible=False)
+# --- FUNÇÃO REMOVIDA ---
+# fn_keep_record() não é mais necessária
 
 def fn_load_history(paciente_id_do_state):
     """Carrega o histórico do Google Sheets para o DataFrame."""
+    # (Sem mudanças)
     headers, history = sheets_service.get_history(paciente_id_do_state)
     if not history:
         return gr.update(value=None), gr.update(value="Nenhum histórico encontrado.", visible=True)
     
-    # Cria um DataFrame do Pandas para o Gradio exibir
-    # Seleciona apenas as colunas que o usuário quer ver
     col_indices = [
-        headers.index('timestamp'), 
-        headers.index('area'), 
-        headers.index('sentimento'), 
-        headers.index('sentimento_texto'), 
-        headers.index('temas_gemini'), 
-        headers.index('diario_texto')
+        headers.index('timestamp'), headers.index('area'), 
+        headers.index('sentimento'), headers.index('sentimento_texto'), 
+        headers.index('temas_gemini'), headers.index('diario_texto')
     ]
-    
-    # Recria o dataframe com as colunas selecionadas
     display_headers = [headers[i] for i in col_indices]
     display_data = [[row[i] for i in col_indices] for row in history]
-    
     df = pd.DataFrame(display_data, columns=display_headers)
     
     return gr.update(value=df, visible=True), gr.update(visible=False)
@@ -151,11 +159,11 @@ with gr.Blocks(theme=gr.themes.Default()) as app:
     state_user = gr.State(None)
     gr.Markdown("# 🧠 Painel de Bem-Estar 360°")
     
-    # --- MUDANÇA: Estrutura de Abas ---
     with gr.Tabs() as tabs:
         
         # --- ABA 1: LOGIN (Padrão) ---
         with gr.Tab("Login", id=0) as login_tab:
+            # (Sem mudanças)
             gr.Markdown("Por favor, faça o login para continuar.")
             in_login_username = gr.Textbox(label="Usuário", placeholder="Ex: marcelo")
             in_login_password = gr.Textbox(label="Senha", type="password", placeholder="Ex: senha123")
@@ -169,11 +177,17 @@ with gr.Blocks(theme=gr.themes.Default()) as app:
             with gr.Row():
                 with gr.Column(scale=1):
                     in_contexto = gr.Checkbox(label="Check-in Profissional?", info="Deixe desmarcado para Pessoal", value=False)
+                    
+                    # --- MUDANÇA AQUI: Nova lista de áreas ---
                     in_area = gr.Dropdown(
-                        ["Saúde Mental", "Saúde Física", "Relacionamentos", "Carreira", "Finanças", "Lazer", "Outro"], 
-                        label="Sobre qual área?", value="Saúde Mental")
+                        choices=areas_de_vida, # Usa a nova lista definida no topo
+                        label="Sobre qual área?", 
+                        value=areas_de_vida[9] # Padrão = "Emoções"
+                    )
+                    
                     in_sentimento = gr.Slider(
                         1, 10, step=1, label="Como você avalia essa área HOJE? (1=Péssimo, 10=Ótimo)", value=5)
+                
                 with gr.Column(scale=2):
                     out_sugestoes = gr.CheckboxGroup(label="O que aconteceu? (IA Nível 1)", visible=False)
 
@@ -187,12 +201,14 @@ with gr.Blocks(theme=gr.themes.Default()) as app:
             btn_submit = gr.Button("Registrar Check-in")
             out_feedback = gr.Markdown(visible=False)
             
-            # --- NOVO: Botões de Apagar (começam ocultos) ---
-            with gr.Row(visible=False) as delete_buttons_row:
-                btn_keep = gr.Button("Manter Registro")
-                btn_delete = gr.Button("Apagar este Registro", variant="stop") # Botão vermelho
+            # --- MUDANÇA AQUI: Botão de Descartar ---
+            btn_discard = gr.Button(
+                "Prefiro descartar este registro/não enviar para a psicóloga", 
+                variant="secondary", # Cinza, menos proeminente
+                visible=False
+            )
 
-        # --- NOVA ABA 3: HISTÓRICO (Começa Oculta) ---
+        # --- ABA 3: HISTÓRICO (Sem mudanças) ---
         with gr.Tab("Meu Histórico", id=2, visible=False) as history_tab:
             gr.Markdown("Veja seus registros anteriores. Os mais recentes aparecem primeiro.")
             btn_load_history = gr.Button("Carregar meu histórico")
@@ -201,52 +217,45 @@ with gr.Blocks(theme=gr.themes.Default()) as app:
 
     # --- Conexões (Event Listeners) ---
     
-    # Conexão de Login
+    # Conexão de Login (Sem mudanças)
     btn_login.click(
         fn=fn_login,
         inputs=[in_login_username, in_login_password],
-        outputs=[state_user, checkin_tab, out_login_message, tabs, history_tab] # Mostra as duas abas
+        outputs=[state_user, checkin_tab, out_login_message, tabs, history_tab]
     )
     
-    # Conexões do Check-in
+    # Conexões do Check-in (Sem mudanças)
     in_sentimento.release(
         fn=fn_get_suggestions,
         inputs=[in_contexto, in_area, in_sentimento],
         outputs=[out_sugestoes]
     )
-
     out_sugestoes.select(
         fn=fn_get_drilldown,
         inputs=[out_sugestoes],
         outputs=[components_n3, in_diario_texto, out_perguntas_chave]
     )
-    
     in_diario_audio.stop_recording(
         fn=fn_transcribe,
         inputs=[in_diario_audio, in_diario_texto],
         outputs=[in_diario_texto]
     )
 
+    # --- MUDANÇA AQUI: Saída do btn_submit ---
     btn_submit.click(
         fn=fn_submit_checkin,
         inputs=[state_user, in_contexto, in_area, in_sentimento, out_sugestoes, in_diario_texto],
-        outputs=[out_feedback, delete_buttons_row] # Mostra o feedback E os botões de apagar
+        outputs=[out_feedback, btn_discard] # Mostra o feedback E o botão de descartar
     )
     
-    # Conexões dos botões de Apagar
-    btn_delete.click(
+    # --- MUDANÇA AQUI: Nova conexão do btn_discard ---
+    btn_discard.click(
         fn=fn_delete_last_record,
         inputs=[state_user],
-        outputs=[delete_buttons_row, out_feedback] # Esconde os botões e atualiza o feedback
+        outputs=[btn_discard, out_feedback] # Esconde o botão e atualiza o feedback
     )
     
-    btn_keep.click(
-        fn=fn_keep_record,
-        inputs=None,
-        outputs=[delete_buttons_row] # Apenas esconde os botões
-    )
-    
-    # Conexão da Aba de Histórico
+    # Conexão da Aba de Histórico (Sem mudanças)
     btn_load_history.click(
         fn=fn_load_history,
         inputs=[state_user],
