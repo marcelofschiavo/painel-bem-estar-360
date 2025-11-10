@@ -20,7 +20,7 @@ class CheckinFinal(BaseModel):
     area: Optional[str] = "Saúde Mental"
     sentimento: Union[float, int]
     topicos_selecionados: list[str]
-    diario_texto: str
+    diario_texto: Optional[str] = ""
 
 class GeminiResponse(BaseModel):
     """Modelo para o JSON que esperamos do Gemini no final"""

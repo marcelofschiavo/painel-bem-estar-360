@@ -24,12 +24,9 @@ class SheetsService:
             creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
             client = gspread.authorize(creds)
             
-            # Abre o arquivo de planilha inteiro
             spreadsheet = client.open_by_key(SHEET_ID)
-            
-            # --- MUDANÇA AQUI: Abre as duas abas ---
-            self.checkins_sheet = spreadsheet.worksheet("Checkins") # Aba onde salvamos os dados
-            self.users_sheet = spreadsheet.worksheet("Usuarios")   # Aba onde lemos os logins
+            self.checkins_sheet = spreadsheet.worksheet("Checkins")
+            self.users_sheet = spreadsheet.worksheet("Usuarios")
             
             print(f"Google Sheet (Checkins, Usuarios) conectado com sucesso.")
             
@@ -38,64 +35,86 @@ class SheetsService:
             self.checkins_sheet = None
             self.users_sheet = None
 
-    # --- NOVA FUNÇÃO ---
     def check_user(self, username, password):
-        """Verifica se o usuário e senha existem na aba 'Usuarios'."""
-        if not self.users_sheet:
-            print("Erro: Aba de usuários não conectada.")
-            return False
-        
+        # (Sem mudanças nesta função)
+        if not self.users_sheet: return False
         try:
-            # Pega todos os valores da planilha de usuários, exceto o cabeçalho
             users_list = self.users_sheet.get_all_values()[1:] 
-            
             for row in users_list:
-                # Coluna A (row[0]) é username, Coluna B (row[1]) é password
                 if row[0] == username and row[1] == password:
                     print(f"Login bem-sucedido para: {username}")
-                    return True # Encontrou
-            
+                    return True
             print(f"Login falhou para: {username}")
-            return False # Não encontrou
-        
+            return False
         except Exception as e:
             print(f"Erro ao ler lista de usuários: {e}")
             return False
 
-    # --- FUNÇÃO ATUALIZADA ---
     def write_checkin(self, checkin: CheckinFinal, gemini_data: GeminiResponse, paciente_id: str):
-        """Prepara e escreve a linha final na planilha (com ID do paciente)."""
+        # (Sem mudanças nesta função)
         if not self.checkins_sheet:
-            print("Erro: Aba de check-ins não conectada. Dados não salvos.")
             raise Exception("Aba de check-ins não conectada.")
-
         try:
             agora = datetime.now().isoformat()
             topicos_str = ", ".join(checkin.topicos_selecionados)
             temas_gemini_str = ", ".join(gemini_data.temas)
-
-            # (A ordem das colunas é a mesma de antes)
             nova_linha = [
-                agora,
-                checkin.contexto,
-                checkin.area,
-                checkin.sentimento,
-                topicos_str,
-                checkin.diario_texto,
-                gemini_data.insight,
-                gemini_data.acao,
-                gemini_data.sentimento_texto,
-                temas_gemini_str,
-                gemini_data.resumo,
-                paciente_id # Coluna L
+                agora, checkin.contexto, checkin.area, checkin.sentimento,
+                topicos_str, checkin.diario_texto, gemini_data.insight,
+                gemini_data.acao, gemini_data.sentimento_texto,
+                temas_gemini_str, gemini_data.resumo, paciente_id
             ]
-            
             self.checkins_sheet.append_row(nova_linha)
             print(f"Dados de '{paciente_id}' salvos no Google Sheets com sucesso.")
-            
         except Exception as e:
             print(f"Erro ao escrever no Google Sheets: {e}")
             raise
+
+    # --- NOVA FUNÇÃO DE LEITURA ---
+    def get_history(self, paciente_id: str):
+        """Busca os últimos 20 registros de um paciente."""
+        if not self.checkins_sheet:
+            print("Erro: Aba de check-ins não conectada.")
+            return None, []
+        
+        try:
+            all_data = self.checkins_sheet.get_all_values()
+            if not all_data:
+                return None, []
+                
+            headers = all_data[0]
+            # Filtra os dados pelo ID do paciente (coluna L, índice 11)
+            # e pega os últimos 20 registros
+            user_history = [row for row in all_data[1:] if row[11] == paciente_id]
+            user_history.reverse() # Mostra os mais recentes primeiro
+            return headers, user_history[:20]
+        
+        except Exception as e:
+            print(f"Erro ao ler o histórico: {e}")
+            return None, []
+
+    # --- NOVA FUNÇÃO DE EXCLUSÃO ---
+    def delete_last_record(self, paciente_id: str):
+        """Encontra e apaga a última linha que corresponde ao ID do paciente."""
+        if not self.checkins_sheet:
+            print("Erro: Aba de check-ins não conectada.")
+            return False
+            
+        try:
+            all_data = self.checkins_sheet.get_all_values()
+            # Procura de baixo para cima
+            for i in range(len(all_data) - 1, 0, -1):
+                if all_data[i][11] == paciente_id:
+                    # Encontrou a linha! (O índice do GSheets é 1-based)
+                    row_to_delete = i + 1
+                    self.checkins_sheet.delete_rows(row_to_delete)
+                    print(f"Registro da linha {row_to_delete} ({paciente_id}) apagado.")
+                    return True
+            print(f"Nenhum registro encontrado para apagar para {paciente_id}")
+            return False
+        except Exception as e:
+            print(f"Erro ao apagar o registro: {e}")
+            return False
 
 # Cria uma instância única
 sheets_service = SheetsService()
