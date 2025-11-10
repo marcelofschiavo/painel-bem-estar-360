@@ -1,4 +1,4 @@
-# app.py (com "Outro Tópico" anexado à lista)
+# app.py (com melhorias de UX/UI)
 import gradio as gr
 import os
 import time
@@ -6,7 +6,7 @@ from services.ai_service import ai_service
 from services.sheets_service import sheets_service
 from models.schemas import CheckinContext, DrilldownRequest, CheckinFinal, GeminiResponse
 from fastapi import UploadFile # (Simulação)
-import pandas as pd
+import pandas as pd # Importa o pandas para o DataFrame
 
 # --- Lista de Áreas (Alfabética) ---
 areas_de_vida = [
@@ -41,16 +41,19 @@ def fn_create_user(username, password):
     success, message = sheets_service.create_user(username, password)
     return gr.update(value=message, visible=True)
 
+# --- FUNÇÃO ATUALIZADA ---
 async def fn_get_suggestions(area, sentimento_float):
-    # (Sem mudanças)
+    """Nível 1: Busca sugestões no AI Service."""
     try:
         contexto_data = CheckinContext(area=area, sentimento=sentimento_float)
         response_data = await ai_service.get_suggestions(contexto_data)
         sugestoes = response_data.get("sugestoes", [])
-        return gr.update(choices=sugestoes, visible=True), gr.update(visible=True)
+        # --- MUDANÇA: Mostra sugestões, "Outro" E o botão de Registrar ---
+        return gr.update(choices=sugestoes, visible=True), gr.update(visible=True), gr.update(visible=True)
     except Exception as e:
         print(f"Erro ao chamar ai_service.get_suggestions: {e}")
-        return gr.update(visible=False), gr.update(visible=False)
+        # Esconde tudo em caso de erro
+        return gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
 
 async def fn_get_drilldown(topicos_selecionados):
     # (Sem mudanças)
@@ -81,34 +84,35 @@ async def fn_submit_checkin(paciente_id_do_state, area, sentimento_float, topico
         return gr.update(value="### ❌ Erro: Usuário não autenticado.", visible=True), gr.update(visible=False)
         
     try:
-        # --- MUDANÇA AQUI: Lógica do "Outro Tópico" ---
         topicos_finais = topicos_selecionados
         diario_final = diaro_texto
         
-        # Se o usuário escreveu no campo "Outro Tópico"
         if outro_topico_texto:
-            # 1. Adiciona o texto à lista de tópicos
             topicos_finais.append(f"Outro: {outro_topico_texto}")
-            
-            # 2. Adiciona o texto ao início do diário (para contexto da IA)
             diario_final = f"Tópico principal escrito pelo usuário: {outro_topico_texto}.\n\nDiário: {diaro_texto}"
 
         checkin_data = CheckinFinal(
             area=area,
             sentimento=sentimento_float,
-            topicos_selecionados=topicos_finais, # Envia a lista combinada
-            diario_texto=diario_final # Envia o diário combinado
+            topicos_selecionados=topicos_finais, 
+            diario_texto=diario_final 
         )
         
         gemini_data = await ai_service.process_final_checkin(checkin_data)
         sheets_service.write_checkin(checkin_data, gemini_data, paciente_id_do_state)
         
         msg = f"Check-in de {paciente_id_do_state} salvo com sucesso!"
-        # ... (resto da formatação do feedback) ...
+        
+        # --- MUDANÇA: Adiciona '---' para quebra de linha ---
         feedback = f"""
         ### ✅ {msg}
+        
         **Insight Rápido:** {gemini_data.insight}
+        
+        ---
+        
         **Uma Pequena Ação para Agora:** {gemini_data.acao}
+        
         ---
         **Dados de Transparência (enviados à sua psicóloga):**
         * **Sentimento Detectado no Texto:** {gemini_data.sentimento_texto}
@@ -126,38 +130,25 @@ def fn_delete_last_record(paciente_id_do_state):
     sheets_service.delete_last_record(paciente_id_do_state)
     return gr.update(visible=False), gr.update(value="### ✅ Registro descartado com sucesso.", visible=True)
 
-# --- FUNÇÃO ATUALIZADA ---
 def fn_load_history(paciente_id_do_state):
-    """Carrega o histórico do Google Sheets para o DataFrame."""
+    # (Sem mudanças)
     headers, all_rows = sheets_service.get_all_checkin_data()
-    
     if not headers:
         return gr.update(value=None), gr.update(value="Nenhum dado encontrado na planilha.", visible=True)
-    
+    # ... (resto do código de processamento do histórico omitido para encurtar) ...
     try:
-        # --- MUDANÇA: ID do paciente agora é a 11ª coluna (índice 10) ---
         id_col_index = headers.index('paciente_id')
     except ValueError:
-        return gr.update(value=None), gr.update(value="Erro: Coluna 'paciente_id' não encontrada na planilha.", visible=True)
-    
+        return gr.update(value=None), gr.update(value="Erro: Coluna 'paciente_id' não encontrada.", visible=True)
     user_history = [row for row in all_rows if len(row) > id_col_index and row[id_col_index] == paciente_id_do_state]
     if not user_history:
         return gr.update(value=None), gr.update(value="Nenhum histórico encontrado para este usuário.", visible=True)
-    
     user_history.reverse()
-    
-    # --- MUDANÇA: Voltamos a ter 10 colunas (sem 'outro_topico') ---
-    colunas_desejadas = [
-        'timestamp', 'area', 'sentimento', 'topicos_selecionados', 
-        'diario_texto', 'insight_ia', 'acao_proposta', 
-        'sentimento_texto', 'temas_gemini', 'resumo_psicologa'
-    ]
-    
+    colunas_desejadas = ['timestamp', 'area', 'sentimento', 'topicos_selecionados', 'diario_texto', 'insight_ia', 'acao_proposta', 'sentimento_texto', 'temas_gemini', 'resumo_psicologa']
     try:
         col_indices = [headers.index(col) for col in colunas_desejadas]
     except ValueError as e:
-        return gr.update(value=None), gr.update(value=f"Erro: A coluna {e} não foi encontrada. Verifique o Google Sheet.", visible=True)
-        
+        return gr.update(value=None), gr.update(value=f"Erro: A coluna {e} não foi encontrada.", visible=True)
     display_data = [[row[i] for i in col_indices] for row in user_history[:20]]
     df = pd.DataFrame(display_data, columns=colunas_desejadas)
     return gr.update(value=df, visible=True), gr.update(visible=False)
@@ -188,27 +179,31 @@ with gr.Blocks(
         # --- ABA 2: CHECK-IN (Começa Oculta) ---
         with gr.Tab("Check-in", id=1, visible=False) as checkin_tab:
             
-            gr.Markdown("Faça seu check-in diário. A IA irá te guiar.")
+            # --- MUDANÇA: Texto de instrução ---
+            gr.Markdown("Faça seu check-in diário. Selecione uma área e nota. Aguarde as sugestões da IA após cada opção.")
+            
             with gr.Row():
                 with gr.Column(scale=1):
                     in_area = gr.Dropdown(
                         choices=areas_de_vida,
                         label="Sobre qual área?", 
-                        value=areas_de_vida[0] # Padrão = "Acadêmica"
+                        value=areas_de_vida[0] 
                     )
+                    
                     in_sentimento = gr.Slider(
                         1, 5, step=1, label="Como você avalia essa área HOJE? (1=Péssimo, 5=Ótimo)", 
-                        value=1 
+                        value=3 # Mudei para 3 para não carregar automaticamente
                     )
+                    
+                    # --- NOVO: Botão de Reload ---
+                    btn_reload = gr.Button("Atualizar Sugestões (IA)", variant="secondary")
                 
                 with gr.Column(scale=2):
                     out_sugestoes = gr.CheckboxGroup(label="O que aconteceu? (IA Nível 1)", visible=False)
-                    
-                    # --- MUDANÇA: O campo "Outro" ainda existe ---
                     in_outro_topico = gr.Textbox(
                         label="Outro tópico (opcional)",
                         placeholder="Descreva um tópico que não está na lista...",
-                        visible=False # Começa oculto
+                        visible=False
                     )
 
             with gr.Row(visible=False) as components_n3:
@@ -218,7 +213,9 @@ with gr.Blocks(
                 with gr.Column(scale=1, min_width=200):
                     out_perguntas_chave = gr.Markdown("### Pontos-chave para detalhar:")
 
-            btn_submit = gr.Button("Registrar Check-in")
+            # --- MUDANÇA: Botão de Registro começa oculto ---
+            btn_submit = gr.Button("Registrar Check-in", visible=False)
+            
             out_feedback = gr.Markdown(visible=False)
             
             btn_discard = gr.Button(
@@ -236,7 +233,7 @@ with gr.Blocks(
 
     # --- Conexões (Event Listeners) ---
     
-    # (Sem mudanças no Login)
+    # (Login sem mudanças)
     btn_create_user.click(
         fn=fn_create_user,
         inputs=[in_login_username, in_login_password],
@@ -248,14 +245,21 @@ with gr.Blocks(
         outputs=[state_user, checkin_tab, out_login_message, tabs, history_tab]
     )
     
-    # --- MUDANÇA: Mostra o campo "Outro" junto com as sugestões ---
+    # --- MUDANÇA: 'in_sentimento.release' agora mostra o btn_submit ---
     in_sentimento.release(
         fn=fn_get_suggestions,
         inputs=[in_area, in_sentimento], 
-        outputs=[out_sugestoes, in_outro_topico] # Mostra os dois
+        outputs=[out_sugestoes, in_outro_topico, btn_submit] # Mostra os 3
     )
     
-    # (Sem mudanças no Drilldown e Áudio)
+    # --- NOVO: Botão de Reload faz o mesmo que o slider ---
+    btn_reload.click(
+        fn=fn_get_suggestions,
+        inputs=[in_area, in_sentimento],
+        outputs=[out_sugestoes, in_outro_topico, btn_submit]
+    )
+    
+    # (Resto sem mudanças)
     out_sugestoes.select(
         fn=fn_get_drilldown,
         inputs=[out_sugestoes],
@@ -266,8 +270,6 @@ with gr.Blocks(
         inputs=[in_diario_audio, in_diario_texto],
         outputs=[in_diario_texto]
     )
-
-    # --- MUDANÇA: Adiciona 'in_outro_topico' aos inputs ---
     btn_submit.click(
         fn=fn_submit_checkin,
         inputs=[
@@ -275,18 +277,16 @@ with gr.Blocks(
             in_area, 
             in_sentimento, 
             out_sugestoes,
-            in_outro_topico, # NOVO INPUT
+            in_outro_topico, 
             in_diario_texto
         ],
         outputs=[out_feedback, btn_discard]
     )
-    
     btn_discard.click(
         fn=fn_delete_last_record,
         inputs=[state_user],
         outputs=[btn_discard, out_feedback]
     )
-    
     btn_load_history.click(
         fn=fn_load_history,
         inputs=[state_user],
