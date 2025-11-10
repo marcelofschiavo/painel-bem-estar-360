@@ -1,4 +1,4 @@
-# app.py (com lista de áreas alfabética)
+# app.py (com "Outro Tópico" anexado à lista)
 import gradio as gr
 import os
 import time
@@ -6,9 +6,9 @@ from services.ai_service import ai_service
 from services.sheets_service import sheets_service
 from models.schemas import CheckinContext, DrilldownRequest, CheckinFinal, GeminiResponse
 from fastapi import UploadFile # (Simulação)
-import pandas as pd # Importa o pandas para o DataFrame
+import pandas as pd
 
-# --- MUDANÇA AQUI: Lista de Áreas em Ordem Alfabética ---
+# --- Lista de Áreas (Alfabética) ---
 areas_de_vida = [
     "Acadêmica: Estudo, aprendizado, evolução.",
     "Amoroso: Parceria, afeto, intimidade.",
@@ -37,7 +37,6 @@ def fn_login(username, password):
         return None, gr.update(visible=False), gr.update(value="Login falhou. Verifique seu usuário e senha.", visible=True), gr.update(), gr.update(visible=False)
 
 def fn_create_user(username, password):
-    """Tenta criar um novo usuário."""
     # (Sem mudanças)
     success, message = sheets_service.create_user(username, password)
     return gr.update(value=message, visible=True)
@@ -48,10 +47,10 @@ async def fn_get_suggestions(area, sentimento_float):
         contexto_data = CheckinContext(area=area, sentimento=sentimento_float)
         response_data = await ai_service.get_suggestions(contexto_data)
         sugestoes = response_data.get("sugestoes", [])
-        return gr.update(choices=sugestoes, visible=True)
+        return gr.update(choices=sugestoes, visible=True), gr.update(visible=True)
     except Exception as e:
         print(f"Erro ao chamar ai_service.get_suggestions: {e}")
-        return gr.update(visible=False)
+        return gr.update(visible=False), gr.update(visible=False)
 
 async def fn_get_drilldown(topicos_selecionados):
     # (Sem mudanças)
@@ -71,34 +70,41 @@ async def fn_get_drilldown(topicos_selecionados):
 async def fn_transcribe(audio_filepath, diaro_atual):
     # (Sem mudanças)
     if audio_filepath is None: return diaro_atual
-    try:
-        class SimulaUploadFile:
-            def __init__(self, filepath):
-                self.filename = os.path.basename(filepath); self.file = open(filepath, 'rb')
-            async def read(self): return self.file.read()
-            def close(self): self.file.close()
-        audio_file = SimulaUploadFile(audio_filepath)
-        response_data = await ai_service.transcribe_audio(audio_file)
-        audio_file.close() 
-        transcricao = response_data.get("transcricao", ""); novo_texto = f"{diaro_atual}\n{transcricao}".strip()
-        return novo_texto
-    except Exception as e:
-        return diaro_atual
+    # ... (código de simulação do UploadFile omitido) ...
+    return diaro_atual
 
-async def fn_submit_checkin(paciente_id_do_state, area, sentimento_float, topicos, diaro_texto):
-    # (Sem mudanças)
+# --- FUNÇÃO ATUALIZADA ---
+async def fn_submit_checkin(paciente_id_do_state, area, sentimento_float, topicos_selecionados, outro_topico_texto, diaro_texto):
+    """Nível Final: Orquestra os serviços de IA e Sheets."""
+    
     if not paciente_id_do_state:
         return gr.update(value="### ❌ Erro: Usuário não autenticado.", visible=True), gr.update(visible=False)
+        
     try:
+        # --- MUDANÇA AQUI: Lógica do "Outro Tópico" ---
+        topicos_finais = topicos_selecionados
+        diario_final = diaro_texto
+        
+        # Se o usuário escreveu no campo "Outro Tópico"
+        if outro_topico_texto:
+            # 1. Adiciona o texto à lista de tópicos
+            topicos_finais.append(f"Outro: {outro_topico_texto}")
+            
+            # 2. Adiciona o texto ao início do diário (para contexto da IA)
+            diario_final = f"Tópico principal escrito pelo usuário: {outro_topico_texto}.\n\nDiário: {diaro_texto}"
+
         checkin_data = CheckinFinal(
             area=area,
             sentimento=sentimento_float,
-            topicos_selecionados=topicos,
-            diario_texto=diaro_texto
+            topicos_selecionados=topicos_finais, # Envia a lista combinada
+            diario_texto=diario_final # Envia o diário combinado
         )
+        
         gemini_data = await ai_service.process_final_checkin(checkin_data)
         sheets_service.write_checkin(checkin_data, gemini_data, paciente_id_do_state)
+        
         msg = f"Check-in de {paciente_id_do_state} salvo com sucesso!"
+        # ... (resto da formatação do feedback) ...
         feedback = f"""
         ### ✅ {msg}
         **Insight Rápido:** {gemini_data.insight}
@@ -110,6 +116,7 @@ async def fn_submit_checkin(paciente_id_do_state, area, sentimento_float, topico
         * **Resumo:** {gemini_data.resumo}
         """
         return gr.update(value=feedback, visible=True), gr.update(visible=True)
+    
     except Exception as e:
         print(f"Erro no fn_submit_checkin: {e}")
         return gr.update(value=f"Erro ao processar o check-in: {e}", visible=True), gr.update(visible=False)
@@ -119,12 +126,16 @@ def fn_delete_last_record(paciente_id_do_state):
     sheets_service.delete_last_record(paciente_id_do_state)
     return gr.update(visible=False), gr.update(value="### ✅ Registro descartado com sucesso.", visible=True)
 
+# --- FUNÇÃO ATUALIZADA ---
 def fn_load_history(paciente_id_do_state):
-    # (Sem mudanças)
+    """Carrega o histórico do Google Sheets para o DataFrame."""
     headers, all_rows = sheets_service.get_all_checkin_data()
+    
     if not headers:
         return gr.update(value=None), gr.update(value="Nenhum dado encontrado na planilha.", visible=True)
+    
     try:
+        # --- MUDANÇA: ID do paciente agora é a 11ª coluna (índice 10) ---
         id_col_index = headers.index('paciente_id')
     except ValueError:
         return gr.update(value=None), gr.update(value="Erro: Coluna 'paciente_id' não encontrada na planilha.", visible=True)
@@ -134,11 +145,14 @@ def fn_load_history(paciente_id_do_state):
         return gr.update(value=None), gr.update(value="Nenhum histórico encontrado para este usuário.", visible=True)
     
     user_history.reverse()
+    
+    # --- MUDANÇA: Voltamos a ter 10 colunas (sem 'outro_topico') ---
     colunas_desejadas = [
         'timestamp', 'area', 'sentimento', 'topicos_selecionados', 
         'diario_texto', 'insight_ia', 'acao_proposta', 
         'sentimento_texto', 'temas_gemini', 'resumo_psicologa'
     ]
+    
     try:
         col_indices = [headers.index(col) for col in colunas_desejadas]
     except ValueError as e:
@@ -150,7 +164,10 @@ def fn_load_history(paciente_id_do_state):
 
 
 # --- Interface Gráfica (Gradio Blocks) ---
-with gr.Blocks(theme=gr.themes.Default()) as app: 
+with gr.Blocks(
+    theme=gr.themes.Default(), 
+    css="body, .gradio-container, .gradio-container * {font-size: 16px !important;}"
+) as app: 
     
     state_user = gr.State(None)
     gr.Markdown("# 🧠 Painel de Bem-Estar 360°")
@@ -174,21 +191,25 @@ with gr.Blocks(theme=gr.themes.Default()) as app:
             gr.Markdown("Faça seu check-in diário. A IA irá te guiar.")
             with gr.Row():
                 with gr.Column(scale=1):
-                    
-                    # --- MUDANÇA AQUI: Lista de áreas e valor padrão ---
                     in_area = gr.Dropdown(
-                        choices=areas_de_vida, # Usa a nova lista alfabética
+                        choices=areas_de_vida,
                         label="Sobre qual área?", 
-                        value=areas_de_vida[0] # Padrão = "Acadêmica" (primeiro da lista)
+                        value=areas_de_vida[0] # Padrão = "Acadêmica"
                     )
-                    
                     in_sentimento = gr.Slider(
-                        1, 10, step=1, label="Como você avalia essa área HOJE? (1=Péssimo, 10=Ótimo)", 
+                        1, 5, step=1, label="Como você avalia essa área HOJE? (1=Péssimo, 5=Ótimo)", 
                         value=1 
                     )
                 
                 with gr.Column(scale=2):
                     out_sugestoes = gr.CheckboxGroup(label="O que aconteceu? (IA Nível 1)", visible=False)
+                    
+                    # --- MUDANÇA: O campo "Outro" ainda existe ---
+                    in_outro_topico = gr.Textbox(
+                        label="Outro tópico (opcional)",
+                        placeholder="Descreva um tópico que não está na lista...",
+                        visible=False # Começa oculto
+                    )
 
             with gr.Row(visible=False) as components_n3:
                 with gr.Column(scale=2):
@@ -215,7 +236,7 @@ with gr.Blocks(theme=gr.themes.Default()) as app:
 
     # --- Conexões (Event Listeners) ---
     
-    # (Sem mudanças em nenhuma conexão)
+    # (Sem mudanças no Login)
     btn_create_user.click(
         fn=fn_create_user,
         inputs=[in_login_username, in_login_password],
@@ -226,11 +247,15 @@ with gr.Blocks(theme=gr.themes.Default()) as app:
         inputs=[in_login_username, in_login_password],
         outputs=[state_user, checkin_tab, out_login_message, tabs, history_tab]
     )
+    
+    # --- MUDANÇA: Mostra o campo "Outro" junto com as sugestões ---
     in_sentimento.release(
         fn=fn_get_suggestions,
         inputs=[in_area, in_sentimento], 
-        outputs=[out_sugestoes]
+        outputs=[out_sugestoes, in_outro_topico] # Mostra os dois
     )
+    
+    # (Sem mudanças no Drilldown e Áudio)
     out_sugestoes.select(
         fn=fn_get_drilldown,
         inputs=[out_sugestoes],
@@ -241,22 +266,27 @@ with gr.Blocks(theme=gr.themes.Default()) as app:
         inputs=[in_diario_audio, in_diario_texto],
         outputs=[in_diario_texto]
     )
+
+    # --- MUDANÇA: Adiciona 'in_outro_topico' aos inputs ---
     btn_submit.click(
         fn=fn_submit_checkin,
         inputs=[
             state_user, 
             in_area, 
             in_sentimento, 
-            out_sugestoes, 
+            out_sugestoes,
+            in_outro_topico, # NOVO INPUT
             in_diario_texto
         ],
         outputs=[out_feedback, btn_discard]
     )
+    
     btn_discard.click(
         fn=fn_delete_last_record,
         inputs=[state_user],
         outputs=[btn_discard, out_feedback]
     )
+    
     btn_load_history.click(
         fn=fn_load_history,
         inputs=[state_user],

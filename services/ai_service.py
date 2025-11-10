@@ -6,14 +6,9 @@ import google.generativeai as genai
 from models.schemas import CheckinContext, DrilldownRequest, CheckinFinal, GeminiResponse
 from fastapi import UploadFile
 
-"""
-(Atualizado) 
-1. Whisper -> Small
-2. Prompts de Gemini atualizados (sem contexto, sugestões mais curtas)
-"""
-
 class AIService:
     def __init__(self):
+        # (Sem mudanças no __init__ e _load_whisper / _load_gemini)
         print("Carregando serviços de IA...")
         self.transcriber = self._load_whisper()
         self.gemini_model = self._load_gemini()
@@ -21,7 +16,6 @@ class AIService:
     def _load_whisper(self):
         try:
             print("Carregando modelo de transcrição (Whisper)...")
-            # --- MUDANÇA AQUI: tiny -> small ---
             model = pipeline("automatic-speech-recognition", model="openai/whisper-small")
             print("Modelo de transcrição (small) carregado.")
             return model
@@ -30,7 +24,6 @@ class AIService:
             return None
 
     def _load_gemini(self):
-        # (Sem mudanças aqui)
         try:
             GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
             if not GOOGLE_API_KEY:
@@ -48,22 +41,23 @@ class AIService:
             return None
 
     async def get_suggestions(self, contexto: CheckinContext):
-        """Gera as sugestões de Nível 1 (sem contexto)."""
+        """Gera as sugestões de Nível 1 (mais curtas)."""
         if not self.gemini_model:
             raise Exception("Modelo Gemini não carregado.")
         
         sentimento_desc = "muito positivo"
-        if contexto.sentimento <= 3: sentimento_desc = "extremamente negativo"
-        elif contexto.sentimento <= 6: sentimento_desc = "negativo/neutro"
+        if contexto.sentimento <= 2: # Ajustado para 1-5
+            sentimento_desc = "extremamente negativo"
+        elif contexto.sentimento <= 3: # Ajustado para 1-5
+            sentimento_desc = "negativo"
 
-        # --- MUDANÇA AQUI: Prompt atualizado ---
         prompt = f"""
         Contexto: O usuário está fazendo um check-in de bem-estar.
         - Área da Vida: {contexto.area}
-        - Sentimento (1-10): {contexto.sentimento} (indica sentimento {sentimento_desc}).
+        - Sentimento (1-5): {contexto.sentimento} (indica sentimento {sentimento_desc}).
 
         Gere 4 "gatilhos prováveis" que podem ter causado esse sentimento.
-        Seja muito breve e direto (máximo 10 palavras por item).
+        Seja muito breve e direto (máximo 10 palavras por item, idealmente 5-7).
         
         Retorne APENAS um objeto JSON válido no formato:
         {{"sugestoes": ["item curto 1", "item curto 2", "item curto 3", "item curto 4"]}}
@@ -78,13 +72,23 @@ class AIService:
             return {"sugestoes": ["Fale sobre seu dia", "O que mais te marcou hoje?"]}
 
     async def get_drilldown_questions(self, request: DrilldownRequest):
-        # (Sem mudanças)
-        if not self.gemini_model: raise Exception("Modelo Gemini não carregado.")
+        """Gera as perguntas de Nível 2 (com exemplos)."""
+        if not self.gemini_model:
+            raise Exception("Modelo Gemini não carregado.")
+            
         prompt = f"""
-        Tópico: "{request.topico_selecionado}"
+        Contexto: O usuário selecionou o tópico: "{request.topico_selecionado}"
+        
         Gere 4 perguntas-chave curtas para investigar este tópico.
+        Para cada pergunta, inclua 2-3 exemplos de respostas curtas entre parênteses.
+        
         Retorne APENAS um objeto JSON válido no formato:
-        {{"perguntas": ["Pergunta 1?", "Pergunta 2?", "Pergunta 3?", "Pergunta 4?"]}}
+        {{"perguntas": [
+            "Pergunta 1? (ex: sim, não)", 
+            "Pergunta 2? (ex: hoje, ontem)", 
+            "Pergunta 3? (ex: raiva, tristeza)", 
+            "Pergunta 4? (ex: sim, um pouco, não)"
+        ]}}
         """
         try:
             response = await self.gemini_model.generate_content_async(prompt)
@@ -109,21 +113,22 @@ class AIService:
             return {"transcricao": "[Erro ao processar áudio]"}
 
     async def process_final_checkin(self, checkin: CheckinFinal) -> GeminiResponse:
-        """Roda a análise final do Gemini (sem contexto)."""
+        """Roda a análise final do Gemini."""
         if not self.gemini_model:
             raise Exception("Modelo Gemini não carregado.")
         
-        if not checkin.diario_texto:
+        if not checkin.diario_texto: 
             return GeminiResponse(
                 insight="Seu check-in de sentimento foi salvo.",
                 acao="Na próxima vez, tente escrever um diário ou gravar um áudio para receber mais insights."
             )
 
-        # --- MUDANÇA AQUI: Prompt atualizado ---
+        # --- MUDANÇA: O 'outro_topico' já estará naturalmente no 'diario_texto' ---
+        # se o usuário o preencheu no app.py
         prompt_final = f"""
         Contexto Psicológico:
-        Um usuário registrou um diário sobre a área "{checkin.area}" com nota {checkin.sentimento}/10.
-        Diário: "{checkin.diario_texto}"
+        Um usuário registrou um diário sobre a área "{checkin.area}" com nota {checkin.sentimento}/5.
+        Diário: "{checkin.diario_texto}" 
 
         Analise o diário e retorne APENAS um objeto JSON válido com 5 chaves:
         1. "insight": (String) 1 frase empática que valide o sentimento. Não dê conselhos.
@@ -145,5 +150,5 @@ class AIService:
                 acao="Tente novamente mais tarde."
             )
 
-# Cria uma instância única para ser usada pelo FastAPI
+# Cria uma instância única
 ai_service = AIService()
