@@ -1,8 +1,6 @@
-# requirements.txt
 gradio
 gspread
 google-auth
-transformers
-torch
 google-generativeai
 pydantic
+pandas

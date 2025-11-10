@@ -1,4 +1,4 @@
-# app.py (Corrigido o NameError 'fn_update_diario_from_outro')
+# app.py (Sem Áudio + Correção do NameError)
 import gradio as gr
 import os
 import time
@@ -25,17 +25,19 @@ areas_de_vida = [
 ]
 
 # --- Funções de Lógica ---
-# (fn_on_app_load, fn_toggle_signup_form, fn_login, fn_handle_role, fn_create_user - Sem mudanças)
 
 def fn_on_app_load():
+    # (Sem mudanças)
     print("Carregando lista de psicólogas...")
     lista_psicologas = sheets_service.get_psicologas_list_for_signup()
     return gr.update(choices=lista_psicologas)
 
 def fn_toggle_signup_form(is_novo_usuario_check):
+    # (Sem mudanças)
     return gr.update(visible=is_novo_usuario_check), gr.update(visible=is_novo_usuario_check)
 
 def fn_login(username, password):
+    # (Sem mudanças)
     if not username or not password:
         return None, gr.update(value="Usuário ou senha não podem estar em branco.", visible=True)
     login_valido, role, psicologa_associada = sheets_service.check_user(username, password)
@@ -46,6 +48,7 @@ def fn_login(username, password):
         return None, gr.update(value="Login falhou. Verifique seu usuário e senha.", visible=True)
 
 def fn_handle_role(user_data, request: gr.Request):
+    # (Sem mudanças)
     if not user_data: 
         return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), \
                gr.update(value=""), gr.update(choices=[]), gr.update(choices=[]), gr.update(choices=[])
@@ -65,6 +68,7 @@ def fn_handle_role(user_data, request: gr.Request):
                gr.update(value=""), gr.update(choices=[]), gr.update(choices=[]), gr.update(choices=[])
 
 def fn_create_user(username, password, psicologa_selecionada):
+    # (Sem mudanças)
     success, message = sheets_service.create_user(username, password, psicologa_selecionada)
     return gr.update(value=message, visible=True)
 
@@ -128,23 +132,9 @@ def fn_update_diario_from_outro(outro_topico_texto):
         gr.update(visible=True) # in_compartilhar_paciente
     )
 
-
-async def fn_transcribe_paciente(audio_filepath, diaro_atual):
-    # (Sem mudanças)
-    if audio_filepath is None: return diaro_atual
-    try:
-        class SimulaUploadFile:
-            def __init__(self, filepath):
-                self.filename = os.path.basename(filepath); self.file = open(filepath, 'rb')
-            async def read(self): return self.file.read()
-            def close(self): self.file.close()
-        audio_file = SimulaUploadFile(audio_filepath)
-        response_data = await ai_service.transcribe_audio(audio_file)
-        audio_file.close() 
-        transcricao = response_data.get("transcricao", ""); novo_texto = f"{diaro_atual}\n{transcricao}".strip()
-        return novo_texto
-    except Exception as e:
-        return diaro_atual
+# --- FUNÇÃO REMOVIDA ---
+# async def fn_transcribe_paciente(audio_filepath, diaro_atual):
+#     pass
 
 async def fn_submit_checkin_paciente(user_data_do_state, area, sentimento_float, topicos_selecionados, outro_topico_texto, diaro_texto, compartilhado_bool):
     # (Sem mudanças)
@@ -366,12 +356,15 @@ with gr.Blocks(
                     with gr.Column(scale=2):
                         out_sugestoes_paciente = gr.CheckboxGroup(label="O que aconteceu? (IA Nível 1)", visible=False)
                         in_outro_topico_paciente = gr.Textbox(label="Outro tópico (opcional)", visible=False)
+                
+                # --- MUDANÇA: Removido 'gr.Audio' ---
                 with gr.Row(visible=False) as components_n3_paciente:
                     with gr.Column(scale=2):
                         in_diario_texto_paciente = gr.Textbox(label="Meu Diário", lines=8, visible=True)
-                        in_diario_audio_paciente = gr.Audio(sources=["microphone"], type="filepath", label="...grave seu diário por voz.", visible=True)
+                        # in_diario_audio_paciente = gr.Audio(...) # <-- REMOVIDO
                     with gr.Column(scale=1, min_width=200):
                         out_perguntas_chave_paciente = gr.Markdown("### Pontos-chave para detalhar:")
+                
                 in_compartilhar_paciente = gr.Checkbox(label="Permitir que minha psicóloga acesse este registro", value=True, visible=False)
                 btn_submit_paciente = gr.Button("Registrar Check-in", visible=False)
                 out_feedback_paciente = gr.Markdown(visible=False)
@@ -495,12 +488,8 @@ with gr.Blocks(
         ]
     )
     
-    # --- CORREÇÃO DO TYPO ---
-    in_diario_audio_paciente.stop_recording(
-        fn=fn_transcribe_paciente,
-        inputs=[in_diario_audio_paciente, in_diario_texto_paciente],
-        outputs=[in_diario_texto_paciente]
-    )
+    # --- CONEXÃO REMOVIDA ---
+    # in_diario_audio_paciente.stop_recording(...)
     
     btn_submit_paciente.click(
         fn=fn_submit_checkin_paciente,
