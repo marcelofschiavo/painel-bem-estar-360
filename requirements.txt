@@ -3,4 +3,4 @@ gspread
 google-auth
 google-generativeai
 pydantic
-pandas
+fastapi
